@@ -1,11 +1,1 @@
-{
-  "name": "enxoval-pro",
-  "version": "1.0.0",
-  "private": true,
-  "scripts": {
-    "start": "node server.js"
-  },
-  "engines": {
-    "node": ">=20"
-  }
-}
+{"name":"enxoval-pro-acesso","version":"2.0.0","private":true,"scripts":{"start":"node server.js"},"dependencies":{"pg":"^8.13.1"},"engines":{"node":">=20"}}

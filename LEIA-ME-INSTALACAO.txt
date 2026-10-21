@@ -1,0 +1,30 @@
+ENXOVAL PRO — ATUALIZAÇÃO COM LOGIN E NÍVEIS DE ACESSO
+
+ARQUIVOS: index.html, server.js, package.json.
+
+1. ANTES DE ATUALIZAR: faça cópia do repositório e backup dos dados do banco PostgreSQL. Não apague a versão antiga nem os dados locais do navegador.
+2. Use banco PostgreSQL acessível pelo Render. No Render > Environment configure:
+   DATABASE_URL = URL privada de conexão (não compartilhar publicamente)
+   DATABASE_SSL = true (somente se seu provedor exigir SSL)
+   ADMIN_USER = nome do administrador inicial (ex.: admin)
+   ADMIN_PASSWORD = senha forte, com no mínimo 12 caracteres
+3. Atualize os 3 arquivos na RAIZ do repositório GitHub e faça deploy no Render.
+   Build command: npm install
+   Start command: npm start
+4. Abra o endereço HTTPS do aplicativo e faça login com ADMIN_USER e ADMIN_PASSWORD.
+5. No painel de administração, cadastre usuários, vincule cada perfil Hotel ao hotel correto e configure preços por hotel.
+
+PERMISSÕES
+Administrador: hotéis, preços, usuários, lançamentos, relatórios e exclusões.
+Gerente: lançamentos, correções, relatórios e valores; não altera hotéis, preços ou usuários.
+Operador: somente acrescenta lançamentos e vê quantidades; sem preços/faturamento.
+Hotel: apenas consulta o próprio hotel, sem preços nem alterações.
+
+IMPORTANTE:
+- A senha inicial só é criada quando não existe nenhum usuário no banco. Alterar ADMIN_PASSWORD depois não altera a senha de uma conta já criada.
+- NÃO abra index.html por file://. Use o site do Render.
+- Este pacote NÃO foi implantado automaticamente. Teste em serviço de homologação antes de substituir a versão em produção.
+- O banco da versão anterior, se existente, é reaproveitado na tabela enxoval_state.
+- Dados guardados apenas no navegador NÃO são automaticamente enviados ao banco por esta versão. Exporte/importe de modo controlado antes da troca.
+- Cada lançamento deve ser salvo e sincronizado antes de mudar de dispositivo.
+- Um banco Railway só pode ser acessado pelo Render por uma conexão pública autorizada; endereço interno *.railway.internal não funciona fora do Railway.
