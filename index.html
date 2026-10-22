@@ -348,8 +348,16 @@ period.addEventListener('change',render);item.addEventListener('change',render);
 let currentUser=null,sessionToken='',cloudVersion=null,cloudReady=false,cloudDirty=false,cloudBusy=false,cloudTimer=null;
 const cloudStatus=document.getElementById('cloudStatus');
 function cloudMessage(s){cloudStatus.textContent=s}
-async function request(url,method='GET',payload){const r=await fetch(url,{method,headers:{'Content-Type':'application/json',...(sessionToken?{'Authorization':'Bearer '+sessionToken}:{})},cache:'no-store',...(payload?{body:JSON.stringify(payload)}:{})});const obj=await r.json().catch(()=>({}));if(!r.ok){const e=new Error(obj.error||'Erro '+r.status);e.status=r.status;throw e}return obj}
-function applyHotelPrices(){const h=hotels.find(x=>x.id===activeHotelId);PRICES={};if(currentUser&&['admin','manager'].includes(currentUser.role)&&h){Object.assign(PRICES,h.prices||{})}}
+function applyHotelPrices(){
+  const h = hotels.find(x => x.id === activeHotelId);
+  PRICES = {...DEFAULT_PRICES};
+
+  if (h && currentUser &&
+      ['admin','manager'].includes(currentUser.role) &&
+      h.prices && typeof h.prices === 'object') {
+    Object.assign(PRICES, h.prices);
+  }
+}
 function cloudApply(data){hotels=Array.isArray(data.hotels)?data.hotels:[];entries=Array.isArray(data.entries)?data.entries:[];if(currentUser?.role==='hotel')activeHotelId=currentUser.hotelId;else if(!hotels.some(h=>h.id===activeHotelId))activeHotelId=hotels[0]?.id||'legacy';applyHotelPrices();renderHotels();updatePeriods();render();applyPermissions()}
 function cloudSchedule(){if(!cloudReady||currentUser?.role==='hotel')return;cloudDirty=true;cloudMessage('Salvando...');clearTimeout(cloudTimer);cloudTimer=setTimeout(cloudSave,450)}
 async function cloudSave(){if(!cloudReady||cloudBusy||!cloudDirty)return;cloudBusy=true;cloudDirty=false;try{const r=await request('/api/state','PUT',{version:cloudVersion,data:{hotels,entries}});cloudVersion=r.version;cloudMessage('✓ Sincronizado')}catch(e){cloudDirty=true;cloudReady=false;cloudMessage('⚠️ Não salvo: '+e.message);alert('Falha ao salvar: '+e.message+'\nSeus dados locais não foram apagados. Não faça novos lançamentos até resolver.')}finally{cloudBusy=false}}
