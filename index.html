@@ -348,6 +348,34 @@ period.addEventListener('change',render);item.addEventListener('change',render);
 let currentUser=null,sessionToken='',cloudVersion=null,cloudReady=false,cloudDirty=false,cloudBusy=false,cloudTimer=null;
 const cloudStatus=document.getElementById('cloudStatus');
 function cloudMessage(s){cloudStatus.textContent=s}
+ async function request(url, method = 'GET', payload) {
+  const headers = {
+    'Content-Type': 'application/json'
+  };
+
+  if (sessionToken) {
+    headers.Authorization = 'Bearer ' + sessionToken;
+  }
+
+  const options = {
+    method,
+    headers,
+    cache: 'no-store'
+  };
+
+  if (payload !== undefined) {
+    options.body = JSON.stringify(payload);
+  }
+
+  const response = await fetch(url, options);
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.error || data.message || 'Erro na requisição');
+  }
+
+  return data;
+}
 function applyHotelPrices(){
   const h = hotels.find(x => x.id === activeHotelId);
   PRICES = {...DEFAULT_PRICES};
