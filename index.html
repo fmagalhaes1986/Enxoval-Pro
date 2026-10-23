@@ -308,14 +308,92 @@ window.addEventListener('afterprint',()=>{document.body.classList.remove('receip
 $('receiptModal').addEventListener('click',e=>{if(e.target===$('receiptModal'))closeReceipt()});
 function printSimpleReport(){if(!allowed('print')){alert('Sem permissão para esta ação.');return}document.body.classList.add('print-report');window.print();setTimeout(()=>document.body.classList.remove('print-report'),1000)}
 window.addEventListener('afterprint',()=>document.body.classList.remove('print-report'));
-function addRecord(){if(!allowed('launch')){alert('Sem permissão para esta ação.');return}const date=$('date').value;if(!date||date<'2026-10-01'){alert('Informe uma data a partir de 01/10/2026');return}const keys=['saida','entrada','relaveSaida','relaveEntrada'];keys.forEach(k=>$(k).value=k===movement?$('quickQty').value:0);const vals=keys.map(k=>Number($(k).value));if(vals.every(v=>v===0)||vals.some(v=>!Number.isInteger(v))){alert('Informe uma quantidade inteira maior que zero');return}if(vals.some(v=>!Number.isFinite(v)||v<0)){alert('Quantidades inválidas');return}entries.push({hotelId:activeHotelId,date,half:halfOf(date),item:$('newItem').value,...Object.fromEntries(keys.map((k,i)=>[k,vals[i]]))});localStorage.setItem(KEY,JSON.stringify(entries));cloudSchedule();updatePeriods();period.value=halfOf(date);item.value='';render();$('saveMessage').textContent='✓ Lançamento salvo: '+money(vals.reduce((a,b)=>a+b,0))+' peça(s) • '+$('newItem').value;$('quickQty').value=1;closeQuantity();updateLaunchPreview()}
+function addRecord(){if(!allowed('launch')){alert('Sem permissão para esta ação.');return}const date=$('date').value;if(!date||date<'2026-10-01'){alert('Informe uma data a partir de 01/10/2026');return}const keys=['saida','entrada','relaveSaida','relaveEntrada'];keys.forEach(k=>$(k).value=k===movement?$('quickQty').value:0);const vals=keys.map(k=>Number($(k).value));if(vals.every(v=>v===0)||vals.some(v=>!Number.isInteger(v))){alert('Informe uma quantidade inteira maior que zero');return}if(vals.some(v=>!Number.isFinite(v)||v<0)){alert('Quantidades inválidas');return}
+entries.push({
+  id: crypto.randomUUID(),
+  hotelId: activeHotelId,
+  date,
+  half: halfOf(date),
+  item: $('newItem').value,
+  ...Object.fromEntries(keys.map((k, i) => [k, vals[i]]))
+});
+localStorage.setItem(KEY,JSON.stringify(entries));cloudSchedule();updatePeriods();period.value=halfOf(date);item.value='';render();$('saveMessage').textContent='✓ Lançamento salvo: '+money(vals.reduce((a,b)=>a+b,0))+' peça(s) • '+$('newItem').value;$('quickQty').value=1;closeQuantity();updateLaunchPreview()}
 let editingIndex=-1;
 function openEdit(index){if(!allowed('edit')){alert('Sem permissão para esta ação.');return}if(!Number.isInteger(index)||index<0||index>=entries.length)return;editingIndex=index;const r=entries[index];$('editDate').value=r.date;$('editItem').innerHTML=names.map(n=>`<option value="${escapeText(n)}">${escapeText(n)}</option>`).join('');$('editItem').value=r.item;const key=['saida','entrada','relaveSaida','relaveEntrada'].find(k=>Number(r[k])>0)||'saida';$('editMovement').value=key;$('editQty').value=Number(r[key])||1;$('editError').textContent='';$('editModal').hidden=false;$('editQty').focus();$('editQty').select()}
 function closeEdit(){$('editModal').hidden=true;editingIndex=-1}
 function editStep(n){$('editQty').value=Math.max(1,(Number($('editQty').value)||1)+n)}
-function saveEdit(){if(!allowed('edit')){alert('Sem permissão para esta ação.');return}if(editingIndex<0||editingIndex>=entries.length)return;const date=$('editDate').value,itemName=$('editItem').value,field=$('editMovement').value,qty=Number($('editQty').value);if(!date||date<'2026-10-01'||!names.includes(itemName)||!['saida','entrada','relaveSaida','relaveEntrada'].includes(field)||!Number.isSafeInteger(qty)||qty<=0){$('editError').textContent='Informe uma data válida, peça, movimentação e quantidade inteira maior que zero.';return}const updated={hotelId:entries[editingIndex].hotelId||'legacy',date,half:halfOf(date),item:itemName,saida:0,entrada:0,relaveSaida:0,relaveEntrada:0};updated[field]=qty;entries[editingIndex]=updated;localStorage.setItem(KEY,JSON.stringify(entries));cloudSchedule();closeEdit();updatePeriods();period.value=halfOf(date);item.value='';render();$('saveMessage').textContent='✓ Lançamento atualizado: '+money(qty)+' peça(s) • '+itemName}
+function saveEdit(){if(!allowed('edit')){alert('Sem permissão para esta ação.');return}if(editingIndex<0||editingIndex>=entries.length)return;const date=$('editDate').value,itemName=$('editItem').value,field=$('editMovement').value,qty=Number($('editQty').value);if(!date||date<'2026-10-01'||!names.includes(itemName)||!['saida','entrada','relaveSaida','relaveEntrada'].includes(field)||!Number.isSafeInteger(qty)||qty<=0){$('editError').textContent='Informe uma data válida, peça, movimentação e quantidade inteira  maior que zero.';return}
+const updated = {
+  ...entries[editingIndex],
+  date,
+  half: halfOf(date),
+  item: itemName,
+  saida: 0,
+  entrada: 0,
+  relaveSaida: 0,
+  relaveEntrada: 0
+};
+function allowed(permission) {
+  if (!currentUser) return false;
+
+  const role = currentUser.role;
+
+  if (role === 'admin') return true;
+
+  if (role === 'manager') {
+    return ![
+      'users', 'hotels', 'delete', 'reset', 'price'
+    ].includes(permission);
+  }
+
+  if (role === 'operator') {
+    return ![
+      'users', 'hotels', 'edit', 'delete',
+      'reset', 'price'
+    ].includes(permission);
+  }
+
+  if (role === 'hotel') {
+    return ![
+      'users', 'hotels', 'launch', 'pending',
+      'edit', 'delete', 'reset', 'print', 'price'
+    ].includes(permission);
+  }
+
+  return false;
+}
 $('editModal').addEventListener('click',e=>{if(e.target===$('editModal'))closeEdit()});document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('editModal').hidden)closeEdit()});
-function deleteRecord(index){if(!allowed('delete')){alert('Sem permissão para esta ação.');return}if(!confirm('Excluir este lançamento?'))return;entries.splice(index,1);localStorage.setItem(KEY,JSON.stringify(entries));cloudSchedule();render()}
+
+function deleteRecord(index) {
+  iif (!allowed('delete') || currentUser?.role === 'manager') {
+    alert('Sem permissão para esta ação.');
+    return;
+  }
+
+  if (!Number.isInteger(index) ||
+      index < 0 ||
+      index >= entries.length) {
+    return;
+  }
+
+  const registro = entries[index];
+
+  if (currentUser?.role === 'manager' &&
+      String(registro.hotelId) !== String(currentUser.hotelId)) {
+    alert('Você só pode excluir lançamentos do seu hotel.');
+    return;
+  }
+
+  if (!confirm('Excluir este lançamento?')) {
+    return;
+  }
+
+  entries.splice(index, 1);
+  localStorage.setItem(KEY, JSON.stringify(entries));
+  cloudSchedule();
+  render();
+}
+
 function resetDemo(){if(!allowed('reset')){alert('Sem permissão para esta ação.');return}if(confirm('Zerar os lançamentos apenas do hotel selecionado?')){entries=entries.filter(r=>(r.hotelId||'legacy')!==activeHotelId);localStorage.setItem(KEY,JSON.stringify(entries));cloudSchedule();updatePeriods();render()}}
 function exportCSV(){if(!allowed('export')){alert('Sem permissão para esta ação.');return}const rows=[['Data','Quinzena','Item','Saída','Entrada','Relave saída','Relave entrada','Faturamento'],...filtered().map(r=>[r.date,r.half,r.item,r.saida,r.entrada,r.relaveSaida,r.relaveEntrada,(r.entrada*(PRICES[r.item]||0)).toFixed(2)])];const csv='\ufeff'+rows.map(r=>r.map(v=>'"'+String(v).replaceAll('"','""')+'"').join(';')).join('\r\n');const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));a.download='enxoval_outubro_2026.csv';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)}
 let movement='saida';function chooseMovement(btn){movement=btn.dataset.field;document.querySelectorAll('.choice').forEach(b=>b.classList.toggle('active',b===btn));updateLaunchPreview()}function stepQty(n){$('quickQty').value=Math.max(1,Number($('quickQty').value||1)+n);updateLaunchPreview()}
