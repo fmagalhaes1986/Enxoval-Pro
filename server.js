@@ -15,7 +15,50 @@ const count=await pool.query('SELECT count(*)::int AS n FROM enxoval_users');if(
 async function auth(req){const t=/^Bearer ([a-f0-9]{64})$/.exec(req.headers.authorization||'');if(!t)throw fail(401,'Faça login');const r=await pool.query(`SELECT u.* FROM enxoval_sessions s JOIN enxoval_users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.expires_at>now() AND u.active=true`,[hash(t[1])]);if(!r.rowCount)throw fail(401,'Sessão inválida ou expirada');return r.rows[0]}
 async function body(req){let s='';for await(const c of req){s+=c;if(s.length>3000000)throw fail(413,'Arquivo muito grande')}try{return JSON.parse(s)}catch{throw fail(400,'JSON inválido')}}
 const same=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
-function scoped(state,user){if(user.role==='hotel'){return {hotels:state.hotels.filter(h=>String(h.id)===String(user.hotel_id)).map(h=>({id:h.id,name:h.name})),entries:state.entries.filter(e=>String(e.hotelId)===String(user.hotel_id))}}if(user.role==='operator')return {hotels:state.hotels.map(h=>{const {prices,priceTable,...rest}=h;return rest}),entries:state.entries};return state}
+
+function scoped(state, user) {
+  const role = user.role;
+
+  if (role === 'admin') {
+    return state;
+  }
+
+  if (role === 'manager' || role === 'hotel') {
+    const hotelId = String(user.hotel_id || '');
+
+    const hotels = state.hotels
+      .filter(h => String(h.id) === hotelId)
+      .map(h => {
+        if (role === 'manager') {
+          return h;
+        }
+
+        return {
+          id: h.id,
+          name: h.name
+        };
+      });
+
+    const entries = state.entries.filter(
+      e => String(e.hotelId) === hotelId
+    );
+
+    return { hotels, entries };
+  }
+
+  if (role === 'operator') {
+    return {
+      hotels: state.hotels.map(h => {
+        const { prices, priceTable, ...rest } = h;
+        return rest;
+      }),
+      entries: state.entries
+    };
+  }
+
+  return { hotels: [], entries: [] };
+}
+
 function entryValid(e){return e&&typeof e==='object'&&typeof e.hotelId==='string'&&typeof e.item==='string'&&/^\d{4}-\d\d-\d\d$/.test(e.date||'')&&['saida','entrada','relaveSaida','relaveEntrada'].every(k=>Number.isSafeInteger(Number(e[k]||0))&&Number(e[k]||0)>=0)}
 async function api(req,res,url){if(!initPromise)initPromise=init().catch(e=>{initPromise=null;throw e});await initPromise;
 if(url==='/api/login'&&req.method==='POST'){const b=await body(req);const username=String(b.username||'').trim().toLowerCase();const r=await pool.query('SELECT * FROM enxoval_users WHERE username=$1 AND active=true',[username]);const u=r.rows[0];const salt=u?.salt||'00000000000000000000000000000000';const expected=Buffer.from(u?.pass_hash||'0'.repeat(128),'hex'),actual=Buffer.from(pass(String(b.password||''),salt),'hex');if(!u||!crypto.timingSafeEqual(expected,actual))throw fail(401,'Usuário ou senha inválidos');const token=crypto.randomBytes(32).toString('hex');await pool.query("INSERT INTO enxoval_sessions(token_hash,user_id,expires_at) VALUES($1,$2,now()+interval '12 hours')",[hash(token),u.id]);return send(res,200,{token,user:publicUser(u)})}
