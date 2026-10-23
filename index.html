@@ -398,7 +398,52 @@ async function createUser(e){e.preventDefault();try{await request('/api/users','
 async function toggleUser(id,active){if(!confirm('Confirmar alteração de acesso?'))return;try{await request('/api/users/'+id,'PATCH',{active});refreshAdmin()}catch(e){alert(e.message)}}
 async function resetPassword(id){const password=prompt('Nova senha (mínimo 10 caracteres):');if(!password)return;try{await request('/api/users/'+id,'PATCH',{password});alert('Senha atualizada e sessões antigas encerradas')}catch(e){alert(e.message)}}
 function drawPriceTable(){const id=document.getElementById('priceHotel').value,h=hotels.find(x=>x.id===id);const namesList=typeof names!=='undefined'?names:Object.keys(PRICES);document.getElementById('priceTable').innerHTML=h?'<table><tr><th>Peça</th><th>Preço (R$)</th></tr>'+namesList.map((name,i)=>'<tr><td>'+escapeText(name)+'</td><td><input data-piece="'+escapeText(name)+'" type="number" step="0.01" min="0" value="'+Number(h.prices?.[name]||0)+'"></td></tr>').join('')+'</table>':'Cadastre um hotel primeiro.'}
-function savePriceTable(){const h=hotels.find(x=>x.id===document.getElementById('priceHotel').value);if(!h)return;h.prices={};document.querySelectorAll('#priceTable input[data-piece]').forEach(el=>h.prices[el.dataset.piece]=Number(el.value)||0);saveHotels();applyHotelPrices();render();document.getElementById('adminStatus').textContent='Tabela enviada para sincronização'}
+
+function savePriceTable() {
+  if (!currentUser || currentUser.role !== 'admin') {
+    alert('Somente o administrador pode alterar preços.');
+    return;
+  }
+
+  const hotelId = document.getElementById('priceHotel').value;
+  const h = hotels.find(x => String(x.id) === String(hotelId));
+
+  if (!h) {
+    alert('Selecione um hotel válido.');
+    return;
+  }
+
+  const inputs = document.querySelectorAll('#priceTable input[data-piece]');
+
+  if (!inputs.length) {
+    alert('Nenhuma peça encontrada para salvar.');
+    return;
+  }
+
+  const novosPrecos = { ...(h.prices || {}) };
+
+  for (const el of inputs) {
+    const valor = Number(el.value);
+
+    if (el.value.trim() === '' || !Number.isFinite(valor) || valor < 0) {
+      alert('Verifique o preço de: ' + el.dataset.piece);
+      el.focus();
+      return;
+    }
+
+    novosPrecos[el.dataset.piece] = valor;
+  }
+
+  h.prices = novosPrecos;
+
+  saveHotels();
+  applyHotelPrices();
+  render();
+
+  document.getElementById('adminStatus').textContent =
+    'Tabela do hotel ' + h.name + ' enviada para sincronização.';
+}
+
 setInterval(async()=>{if(!cloudReady||cloudDirty||cloudBusy)return;try{const r=await request('/api/state');if(r.version!==cloudVersion){cloudVersion=r.version;cloudApply(r.data);cloudMessage('✓ Atualizado')}}catch(e){cloudMessage('⚠️ Sem conexão')}},12000);
 (async()=>{sessionToken=sessionStorage.getItem('enxoval_session')||'';if(!sessionToken)return;try{const me=await request('/api/me');currentUser=me.user;await afterLogin()}catch{sessionStorage.removeItem('enxoval_session');sessionToken=''}})();
 </script>
