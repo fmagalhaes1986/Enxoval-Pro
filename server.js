@@ -69,6 +69,215 @@ if(url==='/api/users'&&req.method==='GET'){if(user.role!=='admin')throw fail(403
 if(url==='/api/users'&&req.method==='POST'){if(user.role!=='admin')throw fail(403,'Apenas administrador');const b=await body(req),username=String(b.username||'').trim().toLowerCase(),role=b.role,password=String(b.password||''),hotelId=role==='hotel'?String(b.hotelId||''):null;if(!/^[a-z0-9._-]{3,50}$/.test(username)||!validRole.includes(role)||password.length<10)throw fail(400,'Usuário inválido ou senha com menos de 10 caracteres');if(role==='hotel'){const st=await pool.query('SELECT data FROM enxoval_state WHERE id=1');if(!st.rows[0].data.hotels.some(h=>String(h.id)===hotelId))throw fail(400,'Selecione um hotel cadastrado')}const salt=crypto.randomBytes(16).toString('hex');try{await pool.query('INSERT INTO enxoval_users(username,pass_hash,salt,role,hotel_id) VALUES($1,$2,$3,$4,$5)',[username,pass(password,salt),salt,role,hotelId])}catch(e){if(e.code==='23505')throw fail(409,'Usuário já cadastrado');throw e}return send(res,201,{ok:true})}
 if(url.startsWith('/api/users/')&&req.method==='PATCH'){if(user.role!=='admin')throw fail(403,'Apenas administrador');const id=Number(url.split('/')[3]),b=await body(req);if(!Number.isSafeInteger(id))throw fail(400,'ID inválido');if(id===Number(user.id)&&b.active===false)throw fail(400,'Não é possível desativar a própria conta');if(typeof b.password==='string'&&b.password.length){if(b.password.length<10)throw fail(400,'Senha deve ter 10 caracteres ou mais');const salt=crypto.randomBytes(16).toString('hex');await pool.query('UPDATE enxoval_users SET pass_hash=$1,salt=$2 WHERE id=$3',[pass(b.password,salt),salt,id]);await pool.query('DELETE FROM enxoval_sessions WHERE user_id=$1',[id])}if(typeof b.active==='boolean'){await pool.query('UPDATE enxoval_users SET active=$1 WHERE id=$2',[b.active,id]);if(!b.active)await pool.query('DELETE FROM enxoval_sessions WHERE user_id=$1',[id])}return send(res,200,{ok:true})}
 if(url==='/api/state'&&req.method==='GET'){const r=await pool.query('SELECT version,data FROM enxoval_state WHERE id=1');return send(res,200,{version:Number(r.rows[0].version),data:scoped(r.rows[0].data,user)})}
-if(url==='/api/state'&&req.method==='PUT'){if(user.role==='hotel')throw fail(403,'Hotel somente consulta');const b=await body(req);if(!Number.isSafeInteger(b.version)||!b.data||!Array.isArray(b.data.hotels)||!Array.isArray(b.data.entries)||b.data.hotels.length>5000||b.data.entries.length>100000||!b.data.entries.every(entryValid))throw fail(400,'Dados inválidos');const client=await pool.connect();try{await client.query('BEGIN');const old=await client.query('SELECT version,data FROM enxoval_state WHERE id=1 FOR UPDATE');const current=old.rows[0];if(Number(current.version)!==b.version)throw fail(409,'Dados atualizados por outro usuário. Recarregue a página');if(user.role!=='admin'){const oldHotels=scoped(current.data,user).hotels;if(!same(oldHotels,b.data.hotels))throw fail(403,'Somente administrador pode alterar hotéis e preços');if(user.role==='operator'){if(b.data.entries.length<current.data.entries.length||!same(b.data.entries.slice(0,current.data.entries.length),current.data.entries))throw fail(403,'Operador pode apenas adicionar lançamentos')}}const newState=user.role==='admin'?b.data:{hotels:current.data.hotels,entries:b.data.entries};const r=await client.query('UPDATE enxoval_state SET version=version+1,data=$1::jsonb,updated_at=now() WHERE id=1 RETURNING version',[JSON.stringify(newState)]);await client.query('INSERT INTO enxoval_audit(user_id,action) VALUES($1,$2)',[user.id,'Atualização de dados']);await client.query('COMMIT');return send(res,200,{version:Number(r.rows[0].version)})}catch(e){await client.query('ROLLBACK');throw e}finally{client.release()}}
+if (url === '/api/state' && req.method === 'PUT') {
+  if (user.role === 'hotel') {
+    throw fail(403, 'Hotel somente consulta');
+  }
+
+  if (!['admin', 'manager', 'operator'].includes(user.role)) {
+    throw fail(403, 'Perfil sem permissão');
+  }
+
+  const b = await body(req);
+
+  if (
+    !Number.isSafeInteger(b.version) ||
+    !b.data ||
+    !Array.isArray(b.data.hotels) ||
+    !Array.isArray(b.data.entries) ||
+    b.data.hotels.length > 5000 ||
+    b.data.entries.length > 100000 ||
+    !b.data.entries.every(entryValid)
+  ) {
+    throw fail(400, 'Dados inválidos');
+  }
+
+  const client = await pool.connect();
+
+  try {
+    await client.query('BEGIN');
+
+    const old = await client.query(
+      'SELECT version,data FROM enxoval_state WHERE id=1 FOR UPDATE'
+    );
+
+    const current = old.rows[0];
+
+    if (!current) {
+      throw fail(404, 'Estado não encontrado');
+    }
+
+    if (Number(current.version) !== b.version) {
+      throw fail(
+        409,
+        'Dados atualizados por outro usuário. Recarregue a página'
+      );
+    }
+
+    let newState;
+
+    if (user.role === 'admin') {
+      newState = b.data;
+    } else {
+      const visibleHotels = scoped(current.data, user).hotels;
+
+      if (!same(visibleHotels, b.data.hotels)) {
+        throw fail(
+          403,
+          'Somente administrador pode alterar hotéis e preços'
+        );
+      }
+
+      if (user.role === 'operator') {
+        const previous = current.data.entries;
+        const received = b.data.entries;
+
+        if (
+          received.length < previous.length ||
+          !same(received.slice(0, previous.length), previous)
+        ) {
+          throw fail(
+            403,
+            'Operador pode apenas adicionar lançamentos'
+          );
+        }
+
+        newState = {
+          ...current.data,
+          entries: received
+        };
+      } else if (user.role === 'manager') {
+        const hotelId = String(user.hotel_id || '');
+
+        if (
+          !hotelId ||
+          !current.data.hotels.some(
+            h => String(h.id) === hotelId
+          )
+        ) {
+          throw fail(403, 'Gerente sem hotel válido');
+        }
+
+        const original = current.data.entries.filter(
+          e => String(e.hotelId) === hotelId
+        );
+
+        const received = b.data.entries;
+
+        if (received.length < original.length) {
+          throw fail(403, 'Gerente não pode excluir lançamentos');
+        }
+
+        if (
+          received.some(
+            e => String(e.hotelId) !== hotelId
+          )
+        ) {
+          throw fail(
+            403,
+            'Gerente só pode alterar dados do próprio hotel'
+          );
+        }
+
+        const existingIds = new Set(
+          current.data.entries
+            .filter(e => typeof e.id === 'string' && e.id)
+            .map(e => e.id)
+        );
+
+        const newIds = new Set();
+
+        for (let i = 0; i < original.length; i++) {
+          const before = original[i];
+          const after = received[i];
+
+          if (!before.id) {
+            if (!same(before, after)) {
+              throw fail(
+                403,
+                'Lançamento antigo sem ID: edição bloqueada até migração'
+              );
+            }
+            continue;
+          }
+
+          if (
+            after.id !== before.id ||
+            String(after.hotelId) !== String(before.hotelId)
+          ) {
+            throw fail(
+              403,
+              'Não é permitido excluir, trocar ou mover lançamentos'
+            );
+          }
+        }
+
+        for (const entry of received.slice(original.length)) {
+          if (
+            typeof entry.id !== 'string' ||
+            !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(entry.id) ||
+            existingIds.has(entry.id) ||
+            newIds.has(entry.id)
+          ) {
+            throw fail(
+              400,
+              'Novo lançamento precisa de ID único válido'
+            );
+          }
+
+          newIds.add(entry.id);
+        }
+
+        let position = 0;
+
+        const mergedEntries = current.data.entries.map(entry => {
+          if (String(entry.hotelId) !== hotelId) {
+            return entry;
+          }
+
+          return received[position++];
+        });
+
+        mergedEntries.push(...received.slice(original.length));
+
+        if (mergedEntries.length > 100000) {
+          throw fail(400, 'Limite de lançamentos excedido');
+        }
+
+        newState = {
+          ...current.data,
+          entries: mergedEntries
+        };
+      }
+    }
+
+    const result = await client.query(
+      `UPDATE enxoval_state
+       SET version=version+1,
+           data=$1::jsonb,
+           updated_at=now()
+       WHERE id=1
+       RETURNING version`,
+      [JSON.stringify(newState)]
+    );
+
+    await client.query(
+      'INSERT INTO enxoval_audit(user_id,action) VALUES($1,$2)',
+      [user.id, 'Atualização de dados']
+    );
+
+    await client.query('COMMIT');
+
+    return send(res, 200, {
+      version: Number(result.rows[0].version)
+    });
+  } catch (e) {
+    await client.query('ROLLBACK');
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
 throw fail(404,'Recurso não encontrado')}
 http.createServer(async(req,res)=>{try{const url=new URL(req.url,'http://localhost').pathname;if(url.startsWith('/api/'))return await api(req,res,url);if(req.method!=='GET'&&req.method!=='HEAD')throw fail(405,'Método inválido');if(url!=='/'&&url!=='/index.html')throw fail(404,'Não encontrado');res.writeHead(200,{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer','Content-Security-Policy':"frame-ancestors 'none'"});fs.createReadStream(path.join(__dirname,'index.html')).pipe(res)}catch(e){if(e.status!==401&&e.status!==403)console.error(e.message);send(res,e.status||503,{error:e.status?e.message:'Servidor ou banco indisponível'})}}).listen(port,'0.0.0.0',()=>console.log('Enxoval Pro com perfis na porta '+port));
