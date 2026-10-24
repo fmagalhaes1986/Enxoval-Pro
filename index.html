@@ -62,6 +62,7 @@
 <div class="recent-head"><h3>Últimos lançamentos</h3><button type="button" class="secondary" onclick="showTab('history',document.querySelectorAll('.navtabs button')[2])">Ver histórico →</button></div><div id="recentLaunches" class="recent-list"></div>
 <p class="muted" style="font-size:12px">Os registros são sincronizados com o banco de dados quando a conexão está ativa. Início do controle: 01/10/2026. Valores calculados pelos preços de referência da planilha.</p>
 </section></main><div id="pendingDeliveryModal" class="pending-delivery-overlay" hidden role="dialog" aria-modal="true" aria-labelledby="pendingDeliveryTitle"><div class="pending-delivery-modal"><div class="pending-delivery-head"><div><p class="eyebrow">BAIXA DE PENDÊNCIAS</p><h2 id="pendingDeliveryTitle">Registrar recebimento</h2></div><button type="button" class="secondary" onclick="closePendingDelivery()">✕</button></div><label>Peça pendente<select id="deliveryItem" onchange="updatePendingDeliveryLimit()"></select></label><div class="pending-available">Saldo disponível para receber: <strong id="deliveryAvailable">0</strong> peças</div><label>Data do recebimento<input type="date" id="deliveryDate" min="2026-10-01" onchange="updatePendingDeliveryLimit()"></label><label>Quantidade recebida<input type="number" id="deliveryQty" min="1" step="1" inputmode="numeric" value="1" oninput="validatePendingDelivery()"></label><div class="delivery-qty-controls"><button type="button" onclick="adjustPendingDelivery(-10)">−10</button><button type="button" onclick="adjustPendingDelivery(-1)">−1</button><button type="button" onclick="adjustPendingDelivery(1)">+1</button><button type="button" onclick="adjustPendingDelivery(10)">+10</button><button type="button" onclick="fillPendingDelivery()">Tudo</button></div><p class="muted" id="deliveryHelp">A entrega será registrada como Recebimento e reduzirá o saldo pendente.</p><div class="delivery-modal-actions"><button type="button" class="secondary" onclick="closePendingDelivery()">Cancelar</button><button type="button" id="confirmDelivery" onclick="savePendingDelivery()">✓ Confirmar recebimento</button></div></div></div><div id="receiptModal" class="receipt-overlay" hidden role="dialog" aria-modal="true" aria-label="Prévia do cupom não fiscal"><div class="receipt-modal"><div class="receipt-toolbar"><strong>Prévia do cupom</strong><button type="button" onclick="closeReceipt()">✕ Fechar</button></div><div class="receipt-config"><label>Largura do papel<select id="receiptWidth" onchange="buildReceipt()"><option value="80">80 mm</option><option value="58">58 mm</option></select></label><label><input type="checkbox" id="receiptPrices" onchange="buildReceipt()" checked> Mostrar valores</label></div><div id="receiptPaper" class="receipt-paper"></div><button class="receipt-print-btn" type="button" onclick="printReceipt()">🖨️ Imprimir cupom</button><p class="muted" style="font-size:12px">Na janela de impressão, selecione sua impressora térmica e o tamanho de papel correspondente (58 ou 80 mm), sem margens, cabeçalhos ou rodapés.</p></div></div><div id="editModal" class="edit-overlay" hidden role="dialog" aria-modal="true" aria-labelledby="editTitle"><div class="edit-card"><div class="edit-head"><h2 id="editTitle">✏️ Editar lançamento</h2><button type="button" onclick="closeEdit()" aria-label="Fechar edição">✕</button></div><p class="muted">Altere os dados e salve para atualizar o relatório.</p><label>Data<input id="editDate" type="date" min="2026-10-01" required></label><label>Tipo de peça<select id="editItem"></select></label><label>Movimentação<select id="editMovement"><option value="saida">Enviado</option><option value="entrada">Recebimento</option><option value="relaveSaida">Enviar relavagem</option><option value="relaveEntrada">Receber relavagem</option></select></label><label>Quantidade<div class="edit-qty"><button type="button" onclick="editStep(-10)">−10</button><button type="button" onclick="editStep(-1)">−</button><input id="editQty" type="number" min="1" step="1" inputmode="numeric" required><button type="button" onclick="editStep(1)">+</button><button type="button" onclick="editStep(10)">+10</button></div></label><div class="edit-actions"><button type="button" class="secondary" onclick="closeEdit()">Cancelar</button><button type="button" class="edit-save" onclick="saveEdit()">✓ Salvar alterações</button></div><p id="editError" role="alert"></p></div></div><script>
+let currentUser=null,sessionToken='',cloudVersion=null,cloudReady=false,cloudDirty=false,cloudBusy=false,cloudTimer=null;
 const DEFAULT_PRICES = {"Lençol Casal":2.05,"Lençol Solteiro":1.82,"T.Banho":1.93,"T. Rosto":1.5,"Fronha":1.03,"T. Piso":1.59,"Edredon Casal":15.9,"Edredon Solteiro":12.32,"Piquet Casal":3.39,"Piquet Solteiro":3.39,"Roupão":5.34,"Saiote Casal":5.34,"Saiote Solteiro":5.34,"Travesseiro":5.41,"Cortina":12.37,"Protetor de travesseiro":1.03,"Protetor Casal":7.61,"Protetor Solteiro":7.61,"Peseira Solteiro":5.34,"Peseira Casal":5.34,"Manta Casal":4.59,"Manta Solteiro":4.59};
 let PRICES = {...DEFAULT_PRICES};
 const money=n=>Number(n||0).toLocaleString('pt-BR',{maximumFractionDigits:2});
@@ -73,11 +74,11 @@ const HOTEL_KEY='enxoval_pro_hoteis_v1';
 let hotels=[];try{const v=JSON.parse(localStorage.getItem(HOTEL_KEY)||'[]');if(Array.isArray(v))hotels=v}catch(e){}
 let activeHotelId=localStorage.getItem('enxoval_pro_hotel_ativo_v1')||'legacy';
 function hotelEntries(){return entries.filter(r=>(r.hotelId||'legacy')===activeHotelId)}
-function renderHotels(){const sel=$('activeHotel');if(!hotels.some(h=>h.id===activeHotelId)&&activeHotelId!=='legacy')activeHotelId='legacy';sel.innerHTML='<option value="legacy">Sem hotel (lançamentos antigos)</option>'+hotels.map(h=>`<option value="${escapeText(h.id)}">${escapeText(h.name)}</option>`).join('');sel.value=activeHotelId;$('hotelRows').innerHTML=hotels.map(h=>`<tr><td>${escapeText(h.name)}</td><td>${escapeText(h.cep||'—')}</td><td>${escapeText(h.address||'—')}</td><td>${escapeText(h.city||'—')}</td><td>${escapeText(h.cnpj||'—')}</td><td>${escapeText(h.hotelPositiveStatus||'Aguardando integração')}</td><td><button type="button" onclick="selectHotel('${h.id}')">Selecionar</button> <button class="secondary" type="button" onclick="viewHotel('${h.id}')">Dados da empresa</button> <button class="secondary" type="button" onclick="editHotel('${h.id}')">Editar</button> <button class="secondary" type="button" onclick="removeHotel('${h.id}')">Excluir</button></td></tr>`).join('')||'<tr><td colspan="7">Nenhum hotel cadastrado.</td></tr>'}
+function renderHotels(){const sel=$('activeHotel');if(!hotels.some(h=>String(h.id)===String(activeHotelId))&&activeHotelId!=='legacy')activeHotelId='legacy';sel.innerHTML='<option value="legacy">Sem hotel (lançamentos antigos)</option>'+hotels.map(h=>`<option value="${escapeText(h.id)}">${escapeText(h.name)}</option>`).join('');sel.value=activeHotelId;$('hotelRows').innerHTML=hotels.map(h=>`<tr><td>${escapeText(h.name)}</td><td>${escapeText(h.cep||'—')}</td><td>${escapeText(h.address||'—')}</td><td>${escapeText(h.city||'—')}</td><td>${escapeText(h.cnpj||'—')}</td><td>${escapeText(h.hotelPositiveStatus||'Aguardando integração')}</td><td><button type="button" onclick="selectHotel('${h.id}')">Selecionar</button> <button class="secondary" type="button" onclick="viewHotel('${h.id}')">Dados da empresa</button> <button class="secondary" type="button" onclick="editHotel('${h.id}')">Editar</button> <button class="secondary" type="button" onclick="removeHotel('${h.id}')">Excluir</button></td></tr>`).join('')||'<tr><td colspan="7">Nenhum hotel cadastrado.</td></tr>'}
 function viewHotel(id){const h=hotels.find(h=>h.id===id);if(!h)return;const labels={name:'Hotel',cnpj:'CNPJ',hotelLegalName:'Razão social',hotelTradeName:'Nome fantasia',hotelSituation:'Situação cadastral',hotelOpening:'Abertura',hotelLegalNature:'Natureza jurídica',hotelCnae:'CNAE principal',hotelEmail:'E-mail',contact:'Telefone',hotelPhone2:'Telefone 2',hotelCapital:'Capital social (R$)',hotelSize:'Porte',hotelSimples:'Simples Nacional',cep:'CEP',address:'Endereço',city:'Cidade / UF',hotelPartners:'Sócios / administradores',hotelActivities:'Atividades secundárias',hotelPositiveStatus:'Cadastro Positivo — situação',hotelPositiveDate:'Cadastro Positivo — última consulta',hotelPositiveNotes:'Cadastro Positivo — observações'};alert(Object.entries(labels).map(([k,v])=>v+': '+(h[k]||'Não informado')).join('\n\n'))}
 function saveHotels(){localStorage.setItem(HOTEL_KEY,JSON.stringify(hotels));cloudSchedule();if(currentUser?.role==='admin')setTimeout(refreshAdmin,100)}
-function changeHotel(){activeHotelId=$('activeHotel').value;applyHotelPrices();localStorage.setItem('enxoval_pro_hotel_ativo_v1',activeHotelId);updatePeriods();render()}
-function selectHotel(id){activeHotelId=id;applyHotelPrices();localStorage.setItem('enxoval_pro_hotel_ativo_v1',id);renderHotels();updatePeriods();render();showTab('launch',document.querySelector('.navtabs button'))}
+function changeHotel(){if(['hotel','manager'].includes(currentUser?.role))return;activeHotelId=$('activeHotel').value;applyHotelPrices();localStorage.setItem('enxoval_pro_hotel_ativo_v1',activeHotelId);updatePeriods();render()}
+function selectHotel(id){if(['hotel','manager'].includes(currentUser?.role))return;activeHotelId=id;applyHotelPrices();localStorage.setItem('enxoval_pro_hotel_ativo_v1',id);renderHotels();updatePeriods();render();showTab('launch',document.querySelector('.navtabs button'))}
 function formatHotelCnpj(el){const d=el.value.replace(/\D/g,'').slice(0,14);el.value=d.replace(/^(\d{2})(\d)/,'$1.$2').replace(/^(\d{2})\.(\d{3})(\d)/,'$1.$2.$3').replace(/\.(\d{3})(\d)/,'.$1/$2').replace(/(\d{4})(\d)/,'$1-$2')}
 function validCnpj(d){if(!/^\d{14}$/.test(d)||/^(\d)\1{13}$/.test(d))return false;const calc=(length)=>{let sum=0,weight=length-7;for(let i=0;i<length;i++){sum+=Number(d[i])*weight--;if(weight<2)weight=9}const rest=sum%11;return rest<2?0:11-rest};return calc(12)===Number(d[12])&&calc(13)===Number(d[13])}
 let hotelCnpjRequest=0;
@@ -308,7 +309,7 @@ window.addEventListener('afterprint',()=>{document.body.classList.remove('receip
 $('receiptModal').addEventListener('click',e=>{if(e.target===$('receiptModal'))closeReceipt()});
 function printSimpleReport(){if(!allowed('print')){alert('Sem permissão para esta ação.');return}document.body.classList.add('print-report');window.print();setTimeout(()=>document.body.classList.remove('print-report'),1000)}
 window.addEventListener('afterprint',()=>document.body.classList.remove('print-report'));
-function addRecord(){if(!allowed('launch')){alert('Sem permissão para esta ação.');return}const date=$('date').value;if(!date||date<'2026-10-01'){alert('Informe uma data a partir de 01/10/2026');return}const keys=['saida','entrada','relaveSaida','relaveEntrada'];keys.forEach(k=>$(k).value=k===movement?$('quickQty').value:0);const vals=keys.map(k=>Number($(k).value));if(vals.every(v=>v===0)||vals.some(v=>!Number.isInteger(v))){alert('Informe uma quantidade inteira maior que zero');return}if(vals.some(v=>!Number.isFinite(v)||v<0)){alert('Quantidades inválidas');return}
+function addRecord(){if(!allowed('launch')||currentUser?.role==='manager'){alert('Lançamentos do gerente temporariamente bloqueados até a correção de segurança no servidor.');return}const date=$('date').value;if(!date||date<'2026-10-01'){alert('Informe uma data a partir de 01/10/2026');return}const keys=['saida','entrada','relaveSaida','relaveEntrada'];keys.forEach(k=>$(k).value=k===movement?$('quickQty').value:0);const vals=keys.map(k=>Number($(k).value));if(vals.every(v=>v===0)||vals.some(v=>!Number.isInteger(v))){alert('Informe uma quantidade inteira maior que zero');return}if(vals.some(v=>!Number.isFinite(v)||v<0)){alert('Quantidades inválidas');return}
 entries.push({
   id: crypto.randomUUID(),
   hotelId: activeHotelId,
@@ -319,53 +320,34 @@ entries.push({
 });
 localStorage.setItem(KEY,JSON.stringify(entries));cloudSchedule();updatePeriods();period.value=halfOf(date);item.value='';render();$('saveMessage').textContent='✓ Lançamento salvo: '+money(vals.reduce((a,b)=>a+b,0))+' peça(s) • '+$('newItem').value;$('quickQty').value=1;closeQuantity();updateLaunchPreview()}
 let editingIndex=-1;
-function openEdit(index){if(!allowed('edit')){alert('Sem permissão para esta ação.');return}if(!Number.isInteger(index)||index<0||index>=entries.length)return;editingIndex=index;const r=entries[index];$('editDate').value=r.date;$('editItem').innerHTML=names.map(n=>`<option value="${escapeText(n)}">${escapeText(n)}</option>`).join('');$('editItem').value=r.item;const key=['saida','entrada','relaveSaida','relaveEntrada'].find(k=>Number(r[k])>0)||'saida';$('editMovement').value=key;$('editQty').value=Number(r[key])||1;$('editError').textContent='';$('editModal').hidden=false;$('editQty').focus();$('editQty').select()}
+function openEdit(index){if(!allowed('edit')||currentUser?.role==='manager'){alert('Edição do gerente temporariamente bloqueada até a correção de segurança no servidor.');return}if(!Number.isInteger(index)||index<0||index>=entries.length)return;editingIndex=index;const r=entries[index];$('editDate').value=r.date;$('editItem').innerHTML=names.map(n=>`<option value="${escapeText(n)}">${escapeText(n)}</option>`).join('');$('editItem').value=r.item;const key=['saida','entrada','relaveSaida','relaveEntrada'].find(k=>Number(r[k])>0)||'saida';$('editMovement').value=key;$('editQty').value=Number(r[key])||1;$('editError').textContent='';$('editModal').hidden=false;$('editQty').focus();$('editQty').select()}
 function closeEdit(){$('editModal').hidden=true;editingIndex=-1}
 function editStep(n){$('editQty').value=Math.max(1,(Number($('editQty').value)||1)+n)}
-function saveEdit(){if(!allowed('edit')){alert('Sem permissão para esta ação.');return}if(editingIndex<0||editingIndex>=entries.length)return;const date=$('editDate').value,itemName=$('editItem').value,field=$('editMovement').value,qty=Number($('editQty').value);if(!date||date<'2026-10-01'||!names.includes(itemName)||!['saida','entrada','relaveSaida','relaveEntrada'].includes(field)||!Number.isSafeInteger(qty)||qty<=0){$('editError').textContent='Informe uma data válida, peça, movimentação e quantidade inteira  maior que zero.';return}
-const updated = {
-  ...entries[editingIndex],
-  date,
-  half: halfOf(date),
-  item: itemName,
-  saida: 0,
-  entrada: 0,
-  relaveSaida: 0,
-  relaveEntrada: 0
-};
-function allowed(permission) {
-  if (!currentUser) return false;
-
-  const role = currentUser.role;
-
-  if (role === 'admin') return true;
-
-  if (role === 'manager') {
-    return ![
-      'users', 'hotels', 'delete', 'reset', 'price'
-    ].includes(permission);
+function saveEdit(){
+  if(!allowed('edit')){alert('Sem permissão para esta ação.');return;}
+  if(editingIndex<0||editingIndex>=entries.length)return;
+  const original=entries[editingIndex];
+  if(currentUser?.role==='manager'&&String(original.hotelId)!==String(currentUser.hotelId)){
+    $('editError').textContent='Você só pode editar lançamentos do seu hotel.';return;
   }
-
-  if (role === 'operator') {
-    return ![
-      'users', 'hotels', 'edit', 'delete',
-      'reset', 'price'
-    ].includes(permission);
+  const date=$('editDate').value,itemName=$('editItem').value,
+        field=$('editMovement').value,qty=Number($('editQty').value);
+  if(!date||date<'2026-10-01'||!names.includes(itemName)||
+     !['saida','entrada','relaveSaida','relaveEntrada'].includes(field)||
+     !Number.isSafeInteger(qty)||qty<=0){
+    $('editError').textContent='Confira data, peça, movimentação e quantidade.';return;
   }
-
-  if (role === 'hotel') {
-    return ![
-      'users', 'hotels', 'launch', 'pending',
-      'edit', 'delete', 'reset', 'print', 'price'
-    ].includes(permission);
-  }
-
-  return false;
+  const updated={...original,date,half:halfOf(date),item:itemName,
+    saida:0,entrada:0,relaveSaida:0,relaveEntrada:0};
+  updated[field]=qty;
+  entries[editingIndex]=updated;
+  localStorage.setItem(KEY,JSON.stringify(entries));
+  cloudSchedule();updatePeriods();render();closeEdit();
 }
 $('editModal').addEventListener('click',e=>{if(e.target===$('editModal'))closeEdit()});document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('editModal').hidden)closeEdit()});
 
 function deleteRecord(index) {
-  iif (!allowed('delete') || currentUser?.role === 'manager') {
+  if (!allowed('delete') || currentUser?.role === 'manager') {
     alert('Sem permissão para esta ação.');
     return;
   }
@@ -411,7 +393,15 @@ $('date').addEventListener('change',renderLaunchExtras);
 drawPieces();updateLaunchPreview();
 
 // Acesso direto: sem contas, senhas ou perfis locais.
-function allowed(permission){if(!currentUser)return false;const role=currentUser.role;if(role==='admin')return true;if(role==='hotel')return !['users','hotels','launch','pending','edit','delete','reset','print','price'].includes(permission);if(role==='operator')return !['users','hotels','edit','delete','reset','price'].includes(permission);return !['users','hotels','delete','reset','price'].includes(permission)}
+function allowed(permission){
+  if(!currentUser)return false;
+  const role=currentUser.role;
+  if(role==='admin')return true;
+  if(role==='manager')return !['users','hotels','delete','reset','price'].includes(permission);
+  if(role==='operator')return !['users','hotels','edit','delete','reset','price'].includes(permission);
+  if(role==='hotel')return !['users','hotels','launch','pending','edit','delete','reset','print','price'].includes(permission);
+  return false;
+}
 period.addEventListener('change',render);item.addEventListener('change',render);renderHotels();updatePeriods();render();
 </script>
 
@@ -420,10 +410,9 @@ period.addEventListener('change',render);item.addEventListener('change',render);
 </style>
 <div id="authScreen"><form id="authCard" onsubmit="loginSubmit(event)"><h2 style="color:#122b4e;margin:0">Enxoval Pro</h2><p>Acesso com usuário e senha</p><label>Usuário<input id="authUser" autocomplete="username" required></label><label>Senha<input id="authPass" type="password" autocomplete="current-password" required></label><button type="submit">Entrar</button><p id="authError" style="color:#b42318"></p></form></div>
 <div id="accountBar" hidden><span id="accountName"></span><button type="button" onclick="logout()">Sair do sistema</button></div>
-<section id="adminArea" hidden><h2>Administração de usuários e preços</h2><h3>Cadastrar usuário</h3><form onsubmit="createUser(event)"><input id="newUsername" placeholder="Nome de usuário" required minlength="3"><input id="newPassword" placeholder="Senha (10+ caracteres)" type="password" required minlength="10"><select id="newRole" onchange="document.getElementById('newHotel').hidden=this.value!=='hotel'"><option value="operator">Operador</option><option value="manager">Gerente</option><option value="hotel">Hotel</option><option value="admin">Administrador</option></select><select id="newHotel" hidden></select><button>Cadastrar usuário</button></form><div id="usersList"></div><hr><h3>Tabela de preços por hotel</h3><p>Os preços são individuais e editáveis somente pelo Administrador.</p><select id="priceHotel" onchange="drawPriceTable()"></select><div id="priceTable"></div><button onclick="savePriceTable()">Salvar tabela de preços</button><p id="adminStatus"></p></section>
+<section id="adminArea" hidden><h2>Administração de usuários e preços</h2><h3>Cadastrar usuário</h3><form onsubmit="createUser(event)"><input id="newUsername" placeholder="Nome de usuário" required minlength="3"><input id="newPassword" placeholder="Senha (10+ caracteres)" type="password" required minlength="10"><select id="newRole" onchange="document.getElementById('newHotel').hidden=!['hotel','manager'].includes(this.value)"><option value="operator">Operador</option><option value="manager">Gerente</option><option value="hotel">Hotel</option><option value="admin">Administrador</option></select><select id="newHotel" hidden></select><button>Cadastrar usuário</button></form><div id="usersList"></div><hr><h3>Tabela de preços por hotel</h3><p>Os preços são individuais e editáveis somente pelo Administrador.</p><select id="priceHotel" onchange="drawPriceTable()"></select><div id="priceTable"></div><button onclick="savePriceTable()">Salvar tabela de preços</button><p id="adminStatus"></p></section>
 <div id="cloudStatus" style="position:fixed;bottom:8px;right:8px;background:white;border:1px solid #cbd5e1;padding:8px 12px;border-radius:9px;z-index:15000;font:12px system-ui">Aguardando login</div>
 <script>
-let currentUser=null,sessionToken='',cloudVersion=null,cloudReady=false,cloudDirty=false,cloudBusy=false,cloudTimer=null;
 const cloudStatus=document.getElementById('cloudStatus');
 function cloudMessage(s){cloudStatus.textContent=s}
  async function request(url, method = 'GET', payload) {
@@ -464,18 +453,18 @@ function applyHotelPrices(){
     Object.assign(PRICES, h.prices);
   }
 }
-function cloudApply(data){hotels=Array.isArray(data.hotels)?data.hotels:[];entries=Array.isArray(data.entries)?data.entries:[];if(currentUser?.role==='hotel')activeHotelId=currentUser.hotelId;else if(!hotels.some(h=>h.id===activeHotelId))activeHotelId=hotels[0]?.id||'legacy';applyHotelPrices();renderHotels();updatePeriods();render();applyPermissions()}
-function cloudSchedule(){if(!cloudReady||currentUser?.role==='hotel')return;cloudDirty=true;cloudMessage('Salvando...');clearTimeout(cloudTimer);cloudTimer=setTimeout(cloudSave,450)}
-async function cloudSave(){if(!cloudReady||cloudBusy||!cloudDirty)return;cloudBusy=true;cloudDirty=false;try{const r=await request('/api/state','PUT',{version:cloudVersion,data:{hotels,entries}});cloudVersion=r.version;cloudMessage('✓ Sincronizado')}catch(e){cloudDirty=true;cloudReady=false;cloudMessage('⚠️ Não salvo: '+e.message);alert('Falha ao salvar: '+e.message+'\nSeus dados locais não foram apagados. Não faça novos lançamentos até resolver.')}finally{cloudBusy=false}}
+function cloudApply(data){hotels=Array.isArray(data.hotels)?data.hotels:[];entries=Array.isArray(data.entries)?data.entries:[];if(['hotel','manager'].includes(currentUser?.role))activeHotelId=currentUser.hotelId;else if(!hotels.some(h=>String(h.id)===String(activeHotelId)))activeHotelId=hotels[0]?.id||'legacy';applyHotelPrices();renderHotels();updatePeriods();render();applyPermissions()}
+function cloudSchedule(){if(!cloudReady||['hotel','manager'].includes(currentUser?.role))return;cloudDirty=true;cloudMessage('Salvando...');clearTimeout(cloudTimer);cloudTimer=setTimeout(cloudSave,450)}
+async function cloudSave(){if(currentUser?.role==='manager')return;if(!cloudReady||cloudBusy||!cloudDirty)return;cloudBusy=true;cloudDirty=false;try{const r=await request('/api/state','PUT',{version:cloudVersion,data:{hotels,entries}});cloudVersion=r.version;cloudMessage('✓ Sincronizado')}catch(e){cloudDirty=true;cloudReady=false;cloudMessage('⚠️ Não salvo: '+e.message);alert('Falha ao salvar: '+e.message+'\nSeus dados locais não foram apagados. Não faça novos lançamentos até resolver.')}finally{cloudBusy=false}}
 async function loginSubmit(ev){ev.preventDefault();document.getElementById('authError').textContent='Conectando...';try{const r=await request('/api/login','POST',{username:document.getElementById('authUser').value,password:document.getElementById('authPass').value});sessionToken=r.token;currentUser=r.user;sessionStorage.setItem('enxoval_session',sessionToken);await afterLogin()}catch(e){document.getElementById('authError').textContent=e.message}}
 async function afterLogin(){const r=await request('/api/state');cloudVersion=r.version;cloudApply(r.data);cloudReady=true;document.getElementById('authScreen').hidden=true;document.getElementById('accountBar').hidden=false;document.getElementById('accountName').textContent='Usuário: '+currentUser.username+' • Perfil: '+currentUser.role;document.getElementById('adminArea').hidden=currentUser.role!=='admin';document.getElementById('authPass').value='';cloudMessage('✓ Conectado');if(currentUser.role==='admin'){refreshAdmin()} }
 async function logout(){try{await request('/api/logout','POST')}catch{}sessionStorage.removeItem('enxoval_session');location.reload()}
-function applyPermissions(){if(!currentUser)return;const role=currentUser.role;document.body.classList.toggle('finance-hidden',role==='operator'||role==='hotel');document.querySelectorAll('.report-stats .report-stat:first-child, .simple-table th:last-child, .analytics-note').forEach(el=>{if(role==='operator'||role==='hotel')el.style.display='none'});document.querySelectorAll('.navtabs button').forEach(b=>{const target=(b.getAttribute('onclick')||'');b.hidden=(role==='hotel'||role==='operator')&&/hotels|users/.test(target)||role==='hotel'&&/launch/.test(target)});document.querySelectorAll('[data-tab="hotels"]').forEach(el=>el.style.display=role==='admin'?'':'none');document.querySelectorAll('[data-tab="launch"]').forEach(el=>{if(role==='hotel')el.style.display='none'});document.querySelectorAll('.row-actions,.edit-btn').forEach(el=>{if(role==='hotel')el.style.display='none'});document.querySelectorAll('button[onclick*="openPendingDelivery"]').forEach(el=>el.hidden=role==='hotel');document.querySelectorAll('button[onclick*="deleteRecord"],button[onclick*="openEdit"]').forEach(el=>el.hidden=role==='operator'||role==='hotel');if(role==='hotel'){const sel=document.getElementById('activeHotel');if(sel){sel.value=activeHotelId;sel.disabled=true}const btn=document.querySelector('.navtabs button[onclick*="history"]');if(btn)btn.click()}}
+function applyPermissions(){if(!currentUser)return;const role=currentUser.role;document.body.classList.toggle('finance-hidden',role==='operator'||role==='hotel');document.querySelectorAll('.report-stats .report-stat:first-child, .simple-table th:last-child, .analytics-note').forEach(el=>{if(role==='operator'||role==='hotel')el.style.display='none'});document.querySelectorAll('.navtabs button').forEach(b=>{const target=(b.getAttribute('onclick')||'');b.hidden=(role==='hotel'||role==='operator')&&/hotels|users/.test(target)||role==='hotel'&&/launch/.test(target)});document.querySelectorAll('[data-tab="hotels"]').forEach(el=>el.style.display=role==='admin'?'':'none');document.querySelectorAll('[data-tab="launch"]').forEach(el=>{if(role==='hotel')el.style.display='none'});document.querySelectorAll('.row-actions,.edit-btn').forEach(el=>{if(role==='hotel')el.style.display='none'});document.querySelectorAll('button[onclick*="openPendingDelivery"]').forEach(el=>el.hidden=role==='hotel');document.querySelectorAll('button[onclick*="deleteRecord"],button[onclick*="openEdit"]').forEach(el=>el.hidden=role==='operator'||role==='hotel'||(role==='manager'&&el.getAttribute('onclick')?.includes('deleteRecord')));if(role==='hotel'||role==='manager'){const sel=document.getElementById('activeHotel');if(sel){sel.value=activeHotelId;sel.disabled=true}const btn=document.querySelector('.navtabs button[onclick*="history"]');if(btn&&role==='hotel')btn.click()}}
 async function refreshAdmin(){const r=await request('/api/users');const list=document.getElementById('usersList');list.innerHTML='<h3>Usuários cadastrados</h3>'+r.users.map(u=>'<p>'+escapeText(u.username)+' — '+escapeText(u.role)+(u.hotelId?' — '+escapeText(u.hotelId):'')+' — '+(u.active?'Ativo':'Inativo')+' <button onclick="toggleUser('+u.id+','+!u.active+')">'+(u.active?'Desativar':'Ativar')+'</button> <button onclick="resetPassword('+u.id+')">Nova senha</button></p>').join('');const opts=hotels.map(h=>'<option value="'+escapeText(h.id)+'">'+escapeText(h.name)+'</option>').join('');document.getElementById('newHotel').innerHTML=opts;document.getElementById('priceHotel').innerHTML=opts;drawPriceTable()}
 async function createUser(e){e.preventDefault();try{await request('/api/users','POST',{username:document.getElementById('newUsername').value,password:document.getElementById('newPassword').value,role:document.getElementById('newRole').value,hotelId:document.getElementById('newHotel').value});document.getElementById('adminStatus').textContent='Usuário cadastrado';document.getElementById('newPassword').value='';refreshAdmin()}catch(e){alert(e.message)}}
 async function toggleUser(id,active){if(!confirm('Confirmar alteração de acesso?'))return;try{await request('/api/users/'+id,'PATCH',{active});refreshAdmin()}catch(e){alert(e.message)}}
 async function resetPassword(id){const password=prompt('Nova senha (mínimo 10 caracteres):');if(!password)return;try{await request('/api/users/'+id,'PATCH',{password});alert('Senha atualizada e sessões antigas encerradas')}catch(e){alert(e.message)}}
-function drawPriceTable(){const id=document.getElementById('priceHotel').value,h=hotels.find(x=>x.id===id);const namesList=typeof names!=='undefined'?names:Object.keys(PRICES);document.getElementById('priceTable').innerHTML=h?'<table><tr><th>Peça</th><th>Preço (R$)</th></tr>'+namesList.map((name,i)=>'<tr><td>'+escapeText(name)+'</td><td><input data-piece="'+escapeText(name)+'" type="number" step="0.01" min="0" value="'+Number(h.prices?.[name]||0)+'"></td></tr>').join('')+'</table>':'Cadastre um hotel primeiro.'}
+function drawPriceTable(){const id=document.getElementById('priceHotel').value,h=hotels.find(x=>x.id===id);const namesList=typeof names!=='undefined'?names:Object.keys(PRICES);document.getElementById('priceTable').innerHTML=h?'<table><tr><th>Peça</th><th>Preço (R$)</th></tr>'+namesList.map((name,i)=>'<tr><td>'+escapeText(name)+'</td><td><input data-piece="'+escapeText(name)+'" type="number" step="0.01" min="0" value="'+Number(h.prices?.[name]??DEFAULT_PRICES[name]??0)+'"></td></tr>').join('')+'</table>':'Cadastre um hotel primeiro.'}
 
 function savePriceTable() {
   if (!currentUser || currentUser.role !== 'admin') {
