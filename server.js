@@ -67,7 +67,44 @@ if(url==='/api/me'&&req.method==='GET')return send(res,200,{user:publicUser(user
 if(url==='/api/logout'&&req.method==='POST'){const t=req.headers.authorization.slice(7);await pool.query('DELETE FROM enxoval_sessions WHERE token_hash=$1',[hash(t)]);return send(res,200,{ok:true})}
 if(url==='/api/users'&&req.method==='GET'){if(user.role!=='admin')throw fail(403,'Apenas administrador');const r=await pool.query('SELECT id,username,role,hotel_id,active FROM enxoval_users ORDER BY id');return send(res,200,{users:r.rows.map(publicUser)})}
 if(url==='/api/users'&&req.method==='POST'){if(user.role!=='admin')throw fail(403,'Apenas administrador');const b=await body(req),username=String(b.username||'').trim().toLowerCase(),role=b.role,password=String(b.password||''),hotelId=role==='hotel'?String(b.hotelId||''):null;if(!/^[a-z0-9._-]{3,50}$/.test(username)||!validRole.includes(role)||password.length<10)throw fail(400,'Usuário inválido ou senha com menos de 10 caracteres');if(role==='hotel'){const st=await pool.query('SELECT data FROM enxoval_state WHERE id=1');if(!st.rows[0].data.hotels.some(h=>String(h.id)===hotelId))throw fail(400,'Selecione um hotel cadastrado')}const salt=crypto.randomBytes(16).toString('hex');try{await pool.query('INSERT INTO enxoval_users(username,pass_hash,salt,role,hotel_id) VALUES($1,$2,$3,$4,$5)',[username,pass(password,salt),salt,role,hotelId])}catch(e){if(e.code==='23505')throw fail(409,'Usuário já cadastrado');throw e}return send(res,201,{ok:true})}
-if(url.startsWith('/api/users/')&&req.method==='PATCH'){if(user.role!=='admin')throw fail(403,'Apenas administrador');const id=Number(url.split('/')[3]),b=await body(req);if(!Number.isSafeInteger(id))throw fail(400,'ID inválido');if(id===Number(user.id)&&b.active===false)throw fail(400,'Não é possível desativar a própria conta');if(typeof b.password==='string'&&b.password.length){if(b.password.length<10)throw fail(400,'Senha deve ter 10 caracteres ou mais');const salt=crypto.randomBytes(16).toString('hex');await pool.query('UPDATE enxoval_users SET pass_hash=$1,salt=$2 WHERE id=$3',[pass(b.password,salt),salt,id]);await pool.query('DELETE FROM enxoval_sessions WHERE user_id=$1',[id])}if(typeof b.active==='boolean'){await pool.query('UPDATE enxoval_users SET active=$1 WHERE id=$2',[b.active,id]);if(!b.active)await pool.query('DELETE FROM enxoval_sessions WHERE user_id=$1',[id])}return send(res,200,{ok:true})}
+
+if(url.startsWith('/api/users/')&&req.method==='PATCH'){
+  if(user.role!=='admin')throw fail(403,'Apenas administrador');
+  const id=Number(url.split('/')[3]),b=await body(req);
+  if(!Number.isSafeInteger(id))throw fail(400,'ID inválido');
+  if(id===Number(user.id)&&b.active===false)throw fail(400,'Não é possível desativar a própria conta');
+
+  if(Object.prototype.hasOwnProperty.call(b,'hotelId')){
+    const hotelId=String(b.hotelId??'').trim();
+    if(!hotelId)throw fail(400,'Selecione um hotel válido');
+    const stateResult=await pool.query('SELECT data FROM enxoval_state WHERE id=1');
+    const state=stateResult.rows[0]?.data;
+    if(!state?.hotels?.some(h=>String(h.id)===hotelId)){
+      throw fail(400,'Hotel não encontrado');
+    }
+    const target=await pool.query('SELECT role FROM enxoval_users WHERE id=$1',[id]);
+    if(!target.rows.length)throw fail(404,'Usuário não encontrado');
+    if(!['manager','hotel'].includes(target.rows[0].role)){
+      throw fail(400,'Vínculo de hotel permitido apenas para gerente ou hotel');
+    }
+    await pool.query('UPDATE enxoval_users SET hotel_id=$1 WHERE id=$2',[hotelId,id]);
+    await pool.query('DELETE FROM enxoval_sessions WHERE user_id=$1',[id]);
+  }
+
+  if(typeof b.password==='string'&&b.password.length){
+    if(b.password.length<10)throw fail(400,'Senha deve ter 10 caracteres ou mais');
+    const salt=crypto.randomBytes(16).toString('hex');
+    await pool.query('UPDATE enxoval_users SET pass_hash=$1,salt=$2 WHERE id=$3',[pass(b.password,salt),salt,id]);
+    await pool.query('DELETE FROM enxoval_sessions WHERE user_id=$1',[id]);
+  }
+
+  if(typeof b.active==='boolean'){
+    await pool.query('UPDATE enxoval_users SET active=$1 WHERE id=$2',[b.active,id]);
+    if(!b.active)await pool.query('DELETE FROM enxoval_sessions WHERE user_id=$1',[id]);
+  }
+  return send(res,200,{ok:true});
+}
+
 if(url==='/api/state'&&req.method==='GET'){const r=await pool.query('SELECT version,data FROM enxoval_state WHERE id=1');return send(res,200,{version:Number(r.rows[0].version),data:scoped(r.rows[0].data,user)})}
 if (url === '/api/state' && req.method === 'PUT') {
   if (user.role === 'hotel') {
