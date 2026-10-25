@@ -490,7 +490,91 @@ async function loginSubmit(ev){ev.preventDefault();document.getElementById('auth
 async function afterLogin(){const r=await request('/api/state');cloudVersion=r.version;cloudApply(r.data);cloudReady=true;document.getElementById('authScreen').hidden=true;document.getElementById('accountBar').hidden=false;document.getElementById('accountName').textContent='Usuário: '+currentUser.username+' • Perfil: '+currentUser.role;document.getElementById('adminArea').hidden=currentUser.role!=='admin';document.getElementById('authPass').value='';cloudMessage('✓ Conectado');if(currentUser.role==='admin'){refreshAdmin()} }
 async function logout(){try{await request('/api/logout','POST')}catch{}sessionStorage.removeItem('enxoval_session');location.reload()}
 function applyPermissions(){if(!currentUser)return;const role=currentUser.role;document.body.classList.toggle('finance-hidden',role==='operator'||role==='hotel');document.querySelectorAll('.report-stats .report-stat:first-child, .simple-table th:last-child, .analytics-note').forEach(el=>{if(role==='operator'||role==='hotel')el.style.display='none'});document.querySelectorAll('.navtabs button').forEach(b=>{const target=(b.getAttribute('onclick')||'');b.hidden=(role==='hotel'||role==='operator')&&/hotels|users/.test(target)||role==='hotel'&&/launch/.test(target)});document.querySelectorAll('[data-tab="hotels"]').forEach(el=>el.style.display=role==='admin'?'':'none');document.querySelectorAll('[data-tab="launch"]').forEach(el=>{if(role==='hotel')el.style.display='none'});document.querySelectorAll('.row-actions,.edit-btn').forEach(el=>{if(role==='hotel')el.style.display='none'});document.querySelectorAll('button[onclick*="openPendingDelivery"]').forEach(el=>el.hidden=role==='hotel');document.querySelectorAll('button[onclick*="deleteRecord"],button[onclick*="openEdit"]').forEach(el=>el.hidden=role==='operator'||role==='hotel'||(role==='manager'&&el.getAttribute('onclick')?.includes('deleteRecord')));if(role==='hotel'||role==='manager'){const sel=document.getElementById('activeHotel');if(sel){sel.value=activeHotelId;sel.disabled=true}const btn=document.querySelector('.navtabs button[onclick*="history"]');if(btn&&role==='hotel')btn.click()}}
-async function refreshAdmin(){const r=await request('/api/users');const list=document.getElementById('usersList');list.innerHTML='<h3>Usuários cadastrados</h3>'+r.users.map(u=>'<p>'+escapeText(u.username)+' — '+escapeText(u.role)+(u.hotelId?' — '+escapeText(u.hotelId):'')+' — '+(u.active?'Ativo':'Inativo')+' <button onclick="toggleUser('+u.id+','+!u.active+')">'+(u.active?'Desativar':'Ativar')+'</button> <button onclick="resetPassword('+u.id+')">Nova senha</button></p>').join('');const opts=hotels.map(h=>'<option value="'+escapeText(h.id)+'">'+escapeText(h.name)+'</option>').join('');document.getElementById('newHotel').innerHTML=opts;document.getElementById('priceHotel').innerHTML=opts;drawPriceTable()}
+
+async function refreshAdmin(){
+  const r=await request('/api/users');
+  const list=document.getElementById('usersList');
+
+  list.innerHTML='<h3>Usuários cadastrados</h3>'+
+    r.users.map(u=>{
+      const podeVincular=['manager','hotel'].includes(u.role);
+
+      return '<p>'+
+        escapeText(u.username)+' — '+
+        escapeText(u.role)+
+        (u.hotelId?' — '+escapeText(u.hotelId):' — Sem hotel vinculado')+
+        ' — '+(u.active?'Ativo':'Inativo')+
+        ' <button onclick="toggleUser('+Number(u.id)+','+!u.active+')">'+
+        (u.active?'Desativar':'Ativar')+'</button>'+
+        ' <button onclick="resetPassword('+Number(u.id)+')">Nova senha</button>'+
+        (podeVincular?
+          ' <button onclick="editUserHotel('+Number(u.id)+')">Editar hotel</button>'
+          :'')+
+        '</p>';
+    }).join('');
+
+  const opts=hotels.map(h=>
+    '<option value="'+escapeText(h.id)+'">'+
+    escapeText(h.name)+'</option>'
+  ).join('');
+
+  document.getElementById('newHotel').innerHTML=opts;
+  document.getElementById('priceHotel').innerHTML=opts;
+  drawPriceTable();
+}
+
+async function editUserHotel(id){
+  try{
+    const r=await request('/api/users');
+    const usuario=r.users.find(u=>Number(u.id)===Number(id));
+
+    if(!usuario){
+      alert('Usuário não encontrado.');
+      return;
+    }
+
+    if(!hotels.length){
+      alert('Nenhum hotel cadastrado. Verifique o cadastro de hotéis.');
+      return;
+    }
+
+    const lista=hotels.map((h,i)=>
+      (i+1)+' - '+h.name+
+      (String(h.id)===String(usuario.hotelId)?' (atual)':'')
+    ).join('\n');
+
+    const escolha=prompt(
+      'Selecione o hotel para '+usuario.username+
+      ':\n\n'+lista+'\n\nDigite o número do hotel:'
+    );
+
+    if(escolha===null)return;
+
+    const numero=Number(escolha.trim());
+
+    if(!Number.isInteger(numero)||numero<1||numero>hotels.length){
+      alert('Número de hotel inválido.');
+      return;
+    }
+
+    const hotel=hotels[numero-1];
+
+    if(!confirm(
+      'Vincular '+usuario.username+' ao hotel '+hotel.name+'?'
+    ))return;
+
+    await request('/api/users/'+id,'PATCH',{
+      hotelId:String(hotel.id)
+    });
+
+    alert('Hotel vinculado com sucesso.');
+    await refreshAdmin();
+
+  }catch(e){
+    alert('Erro ao vincular hotel: '+e.message);
+  }
+}
+
 async function createUser(e){e.preventDefault();try{await request('/api/users','POST',{username:document.getElementById('newUsername').value,password:document.getElementById('newPassword').value,role:document.getElementById('newRole').value,hotelId:document.getElementById('newHotel').value});document.getElementById('adminStatus').textContent='Usuário cadastrado';document.getElementById('newPassword').value='';refreshAdmin()}catch(e){alert(e.message)}}
 async function toggleUser(id,active){if(!confirm('Confirmar alteração de acesso?'))return;try{await request('/api/users/'+id,'PATCH',{active});refreshAdmin()}catch(e){alert(e.message)}}
 async function resetPassword(id){const password=prompt('Nova senha (mínimo 10 caracteres):');if(!password)return;try{await request('/api/users/'+id,'PATCH',{password});alert('Senha atualizada e sessões antigas encerradas')}catch(e){alert(e.message)}}
