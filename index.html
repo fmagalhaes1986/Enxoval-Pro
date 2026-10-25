@@ -197,7 +197,22 @@ function updatePendingDeliveryLimit(){const date=$('deliveryDate').value,name=$(
 function validatePendingDelivery(){const date=$('deliveryDate').value,name=$('deliveryItem').value,n=Number($('deliveryQty').value),available=pendingBalanceFor(name,date),valid=date>='2026-10-01'&&date<=dateTodayLocal()&&Number.isInteger(n)&&n>0&&n<=available;$('confirmDelivery').disabled=!valid;$('deliveryHelp').textContent=valid?'Será registrado um Recebimento, reduzindo a pendência e atualizando os relatórios.':date>dateTodayLocal()?'Não é permitido registrar recebimento em data futura.':`Informe uma quantidade inteira entre 1 e ${Math.max(0,available)} para a data escolhida.`;return valid}
 function adjustPendingDelivery(step){const max=Number($('deliveryQty').max||0);$('deliveryQty').value=Math.min(max,Math.max(1,Number($('deliveryQty').value||1)+step));validatePendingDelivery()}
 function fillPendingDelivery(){$('deliveryQty').value=Math.max(1,Number($('deliveryQty').max||0));validatePendingDelivery()}
-function savePendingDelivery(){if(!allowed('pending')){alert('Sem permissão para esta ação.');return}if(!validatePendingDelivery())return;const date=$('deliveryDate').value,name=$('deliveryItem').value,qty=Number($('deliveryQty').value);if(qty>pendingBalanceFor(name,date)){updatePendingDeliveryLimit();return}entries.push({hotelId:activeHotelId,date,half:halfOf(date),item:name,saida:0,entrada:qty,relaveSaida:0,relaveEntrada:0,pendingDelivery:true});try{localStorage.setItem(KEY,JSON.stringify(entries));cloudSchedule()}catch(e){entries.pop();alert('Não foi possível salvar. Verifique o armazenamento do navegador.');return}closePendingDelivery();updatePeriods();render();$('pendingStatus').textContent=`✓ Recebimento de ${money(qty)} peça(s) de ${name} registrado em ${date.split('-').reverse().join('/')}.`}
+function savePendingDelivery(){if(!allowed('pending')){alert('Sem permissão para esta ação.');return}if(!validatePendingDelivery())return;const date=$('deliveryDate').value,name=$('deliveryItem').value,qty=Number($('deliveryQty').value);if(qty>pendingBalanceFor(name,date)){updatePendingDeliveryLimit();return}
+entries.push({
+  id: crypto.randomUUID(),
+  hotelId: currentUser?.role === 'manager'
+    ? String(currentUser.hotelId)
+    : activeHotelId,
+  date,
+  half: halfOf(date),
+  item: name,
+  saida: 0,
+  entrada: qty,
+  relaveSaida: 0,
+  relaveEntrada: 0,
+  pendingDelivery: true
+});
+;try{localStorage.setItem(KEY,JSON.stringify(entries));cloudSchedule()}catch(e){entries.pop();alert('Não foi possível salvar. Verifique o armazenamento do navegador.');return}closePendingDelivery();updatePeriods();render();$('pendingStatus').textContent=`✓ Recebimento de ${money(qty)} peça(s) de ${name} registrado em ${date.split('-').reverse().join('/')}.`}
 $('pendingDeliveryModal').addEventListener('click',e=>{if(e.target===$('pendingDeliveryModal'))closePendingDelivery()});document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('pendingDeliveryModal').hidden)closePendingDelivery()});
 let pendingReceiptMode=false;
 function pendingData(){
@@ -309,10 +324,19 @@ window.addEventListener('afterprint',()=>{document.body.classList.remove('receip
 $('receiptModal').addEventListener('click',e=>{if(e.target===$('receiptModal'))closeReceipt()});
 function printSimpleReport(){if(!allowed('print')){alert('Sem permissão para esta ação.');return}document.body.classList.add('print-report');window.print();setTimeout(()=>document.body.classList.remove('print-report'),1000)}
 window.addEventListener('afterprint',()=>document.body.classList.remove('print-report'));
-function addRecord(){if(!allowed('launch')||currentUser?.role==='manager'){alert('Lançamentos do gerente temporariamente bloqueados até a correção de segurança no servidor.');return}const date=$('date').value;if(!date||date<'2026-10-01'){alert('Informe uma data a partir de 01/10/2026');return}const keys=['saida','entrada','relaveSaida','relaveEntrada'];keys.forEach(k=>$(k).value=k===movement?$('quickQty').value:0);const vals=keys.map(k=>Number($(k).value));if(vals.every(v=>v===0)||vals.some(v=>!Number.isInteger(v))){alert('Informe uma quantidade inteira maior que zero');return}if(vals.some(v=>!Number.isFinite(v)||v<0)){alert('Quantidades inválidas');return}
+function addRecord(){if(!allowed('launch')){alert('Lançamentos do gerente temporariamente bloqueados até a correção de segurança no servidor.');
+return}
+if(currentUser?.role==='manager' && !currentUser.hotelId){
+  alert('Seu usuário não possui um hotel vinculado. Contate o administrador.');
+  return;
+}
+const date=$('date').value;
+if(!date||date<'2026-10-01'){alert('Informe uma data a partir de 01/10/2026');return}const keys=['saida','entrada','relaveSaida','relaveEntrada'];keys.forEach(k=>$(k).value=k===movement?$('quickQty').value:0);const vals=keys.map(k=>Number($(k).value));if(vals.every(v=>v===0)||vals.some(v=>!Number.isInteger(v))){alert('Informe uma quantidade inteira maior que zero');return}if(vals.some(v=>!Number.isFinite(v)||v<0)){alert('Quantidades inválidas');return}
 entries.push({
   id: crypto.randomUUID(),
-  hotelId: activeHotelId,
+  hotelId: currentUser?.role === 'manager'
+  ? String(currentUser.hotelId)
+  : activeHotelId,
   date,
   half: halfOf(date),
   item: $('newItem').value,
@@ -320,7 +344,41 @@ entries.push({
 });
 localStorage.setItem(KEY,JSON.stringify(entries));cloudSchedule();updatePeriods();period.value=halfOf(date);item.value='';render();$('saveMessage').textContent='✓ Lançamento salvo: '+money(vals.reduce((a,b)=>a+b,0))+' peça(s) • '+$('newItem').value;$('quickQty').value=1;closeQuantity();updateLaunchPreview()}
 let editingIndex=-1;
-function openEdit(index){if(!allowed('edit')||currentUser?.role==='manager'){alert('Edição do gerente temporariamente bloqueada até a correção de segurança no servidor.');return}if(!Number.isInteger(index)||index<0||index>=entries.length)return;editingIndex=index;const r=entries[index];$('editDate').value=r.date;$('editItem').innerHTML=names.map(n=>`<option value="${escapeText(n)}">${escapeText(n)}</option>`).join('');$('editItem').value=r.item;const key=['saida','entrada','relaveSaida','relaveEntrada'].find(k=>Number(r[k])>0)||'saida';$('editMovement').value=key;$('editQty').value=Number(r[key])||1;$('editError').textContent='';$('editModal').hidden=false;$('editQty').focus();$('editQty').select()}
+
+function openEdit(index){
+  if(!allowed('edit')){
+    alert('Sem permissão para editar lançamentos.');
+    return;
+  }
+
+  if(!Number.isInteger(index)||index<0||index>=entries.length)return;
+
+  const r=entries[index];
+
+  if(currentUser?.role==='manager' &&
+     String(r.hotelId)!==String(currentUser.hotelId)){
+    alert('Você só pode editar lançamentos do seu hotel.');
+    return;
+  }
+
+  editingIndex=index;
+  $('editDate').value=r.date;
+  $('editItem').innerHTML=names.map(n=>
+    `<option value="${escapeText(n)}">${escapeText(n)}</option>`
+  ).join('');
+  $('editItem').value=r.item;
+
+  const key=['saida','entrada','relaveSaida','relaveEntrada']
+    .find(k=>Number(r[k])>0)||'saida';
+
+  $('editMovement').value=key;
+  $('editQty').value=Number(r[key])||1;
+  $('editError').textContent='';
+  $('editModal').hidden=false;
+  $('editQty').focus();
+  $('editQty').select();
+}
+
 function closeEdit(){$('editModal').hidden=true;editingIndex=-1}
 function editStep(n){$('editQty').value=Math.max(1,(Number($('editQty').value)||1)+n)}
 function saveEdit(){
@@ -484,8 +542,9 @@ function cloudApply(data) {
   applyPermissions();
 }
 
-function cloudSchedule(){if(!cloudReady||['hotel','manager'].includes(currentUser?.role))return;cloudDirty=true;cloudMessage('Salvando...');clearTimeout(cloudTimer);cloudTimer=setTimeout(cloudSave,450)}
-async function cloudSave(){if(currentUser?.role==='manager')return;if(!cloudReady||cloudBusy||!cloudDirty)return;cloudBusy=true;cloudDirty=false;try{const r=await request('/api/state','PUT',{version:cloudVersion,data:{hotels,entries}});cloudVersion=r.version;cloudMessage('✓ Sincronizado')}catch(e){cloudDirty=true;cloudReady=false;cloudMessage('⚠️ Não salvo: '+e.message);alert('Falha ao salvar: '+e.message+'\nSeus dados locais não foram apagados. Não faça novos lançamentos até resolver.')}finally{cloudBusy=false}}
+function cloudSchedule(){if(!cloudReady||currentUser?.role==='hotel')return;cloudDirty=true;cloudMessage('Salvando...');clearTimeout(cloudTimer);cloudTimer=setTimeout(cloudSave,450)}
+  async function cloudSave(){
+if(!cloudReady||cloudBusy||!cloudDirty)return;cloudBusy=true;cloudDirty=false;try{const r=await request('/api/state','PUT',{version:cloudVersion,data:{hotels,entries}});cloudVersion=r.version;cloudMessage('✓ Sincronizado')}catch(e){cloudDirty=true;cloudReady=false;cloudMessage('⚠️ Não salvo: '+e.message);alert('Falha ao salvar: '+e.message+'\nSeus dados locais não foram apagados. Não faça novos lançamentos até resolver.')}finally{cloudBusy=false}}  
 async function loginSubmit(ev){ev.preventDefault();document.getElementById('authError').textContent='Conectando...';try{const r=await request('/api/login','POST',{username:document.getElementById('authUser').value,password:document.getElementById('authPass').value});sessionToken=r.token;currentUser=r.user;sessionStorage.setItem('enxoval_session',sessionToken);await afterLogin()}catch(e){document.getElementById('authError').textContent=e.message}}
 async function afterLogin(){const r=await request('/api/state');cloudVersion=r.version;cloudApply(r.data);cloudReady=true;document.getElementById('authScreen').hidden=true;document.getElementById('accountBar').hidden=false;document.getElementById('accountName').textContent='Usuário: '+currentUser.username+' • Perfil: '+currentUser.role;document.getElementById('adminArea').hidden=currentUser.role!=='admin';document.getElementById('authPass').value='';cloudMessage('✓ Conectado');if(currentUser.role==='admin'){refreshAdmin()} }
 async function logout(){try{await request('/api/logout','POST')}catch{}sessionStorage.removeItem('enxoval_session');location.reload()}
