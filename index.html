@@ -453,7 +453,37 @@ function applyHotelPrices(){
     Object.assign(PRICES, h.prices);
   }
 }
-function cloudApply(data){hotels=Array.isArray(data.hotels)?data.hotels:[];entries=Array.isArray(data.entries)?data.entries:[];if(['hotel','manager'].includes(currentUser?.role))activeHotelId=currentUser.hotelId;else if(!hotels.some(h=>String(h.id)===String(activeHotelId)))activeHotelId=hotels[0]?.id||'legacy';applyHotelPrices();renderHotels();updatePeriods();render();applyPermissions()}
+
+function cloudApply(data) {
+  hotels = Array.isArray(data.hotels) ? data.hotels : [];
+  entries = Array.isArray(data.entries) ? data.entries : [];
+
+  if (currentUser && ['manager', 'hotel'].includes(currentUser.role)) {
+    const hotelId = String(currentUser.hotelId ?? '');
+
+    const hotelEncontrado = hotels.find(
+      h => String(h.id) === hotelId
+    );
+
+    if (hotelEncontrado) {
+      activeHotelId = hotelEncontrado.id;
+    } else {
+      activeHotelId = '';
+      console.warn('Hotel vinculado ao usuário não encontrado.');
+    }
+  } else if (!hotels.some(
+    h => String(h.id) === String(activeHotelId)
+  )) {
+    activeHotelId = hotels[0]?.id ?? 'legacy';
+  }
+
+  applyHotelPrices();
+  renderHotels();
+  updatePeriods();
+  render();
+  applyPermissions();
+}
+
 function cloudSchedule(){if(!cloudReady||['hotel','manager'].includes(currentUser?.role))return;cloudDirty=true;cloudMessage('Salvando...');clearTimeout(cloudTimer);cloudTimer=setTimeout(cloudSave,450)}
 async function cloudSave(){if(currentUser?.role==='manager')return;if(!cloudReady||cloudBusy||!cloudDirty)return;cloudBusy=true;cloudDirty=false;try{const r=await request('/api/state','PUT',{version:cloudVersion,data:{hotels,entries}});cloudVersion=r.version;cloudMessage('✓ Sincronizado')}catch(e){cloudDirty=true;cloudReady=false;cloudMessage('⚠️ Não salvo: '+e.message);alert('Falha ao salvar: '+e.message+'\nSeus dados locais não foram apagados. Não faça novos lançamentos até resolver.')}finally{cloudBusy=false}}
 async function loginSubmit(ev){ev.preventDefault();document.getElementById('authError').textContent='Conectando...';try{const r=await request('/api/login','POST',{username:document.getElementById('authUser').value,password:document.getElementById('authPass').value});sessionToken=r.token;currentUser=r.user;sessionStorage.setItem('enxoval_session',sessionToken);await afterLogin()}catch(e){document.getElementById('authError').textContent=e.message}}
