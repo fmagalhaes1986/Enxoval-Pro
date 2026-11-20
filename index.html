@@ -160,7 +160,9 @@ function labelHalf(k){const [y,m,h]=k.split('-');return `${h==='1'?'1ª':'2ª'} 
 function localISODate(){const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`}
 function periods(){
   const first=new Date(2026,9,1),today=new Date();
-  const last=new Date(Math.max(first.getTime(),new Date(today.getFullYear(),today.getMonth(),1).getTime()));
+  // Exibe o mês atual e os próximos 12 meses, preservando o histórico desde outubro de 2026.
+  const future=new Date(today.getFullYear(),today.getMonth()+12,1);
+  const last=new Date(Math.max(first.getTime(),future.getTime()));
   const keys=new Set(hotelEntries().map(r=>r.half).filter(Boolean));
   for(let year=first.getFullYear(),month=first.getMonth();year<last.getFullYear()||(year===last.getFullYear()&&month<=last.getMonth());){
     const ym=`${year}-${String(month+1).padStart(2,'0')}`;
