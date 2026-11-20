@@ -157,8 +157,25 @@ item.innerHTML='<option value="">Todos os itens</option>'+names.map(n=>`<option>
 $('newItem').innerHTML=names.map(n=>`<option>${n}</option>`).join('');
 function halfOf(date){const [y,m,d]=date.split('-').map(Number);return `${y}-${String(m).padStart(2,'0')}-${d<=15?1:2}`}
 function labelHalf(k){const [y,m,h]=k.split('-');return `${h==='1'?'1ª':'2ª'} quinzena — ${['','Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'][Number(m)]} ${y}`}
-function periods(){return [...new Set(['2026-10-1','2026-10-2',...hotelEntries().map(r=>r.half)])].sort()}
-function updatePeriods(){const old=period.value;period.innerHTML='<option value="">Todas as quinzenas</option>'+periods().map(k=>`<option value="${k}">${labelHalf(k)}</option>`).join('');period.value=periods().includes(old)?old:'2026-10-1'}
+function localISODate(){const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`}
+function periods(){
+  const first=new Date(2026,9,1),today=new Date();
+  const last=new Date(Math.max(first.getTime(),new Date(today.getFullYear(),today.getMonth(),1).getTime()));
+  const keys=new Set(hotelEntries().map(r=>r.half).filter(Boolean));
+  for(let year=first.getFullYear(),month=first.getMonth();year<last.getFullYear()||(year===last.getFullYear()&&month<=last.getMonth());){
+    const ym=`${year}-${String(month+1).padStart(2,'0')}`;
+    keys.add(`${ym}-1`);keys.add(`${ym}-2`);
+    if(++month===12){month=0;year++}
+  }
+  return [...keys].sort();
+}
+function updatePeriods(){
+  const old=period.value,keys=periods(),today=localISODate();
+  const current=today>='2026-10-01'?halfOf(today):'2026-10-1';
+  period.innerHTML='<option value="">Todas as quinzenas</option>'+keys.map(k=>`<option value="${k}">${labelHalf(k)}</option>`).join('');
+  period.value=old===''&&period.dataset.initialized==='yes'?'':keys.includes(old)?old:current;
+  period.dataset.initialized='yes';
+}
 function filtered(){return hotelEntries().filter(r=>(!period.value||r.half===period.value)&&(!item.value||r.item===item.value))}
 function sum(data,k){return data.reduce((a,r)=>a+Number(r[k]||0),0)}
 function td(v){return `<td>${money(v)}</td>`}
@@ -460,7 +477,7 @@ function allowed(permission){
   if(role==='hotel')return !['users','hotels','launch','pending','edit','delete','reset','print','price'].includes(permission);
   return false;
 }
-period.addEventListener('change',render);item.addEventListener('change',render);renderHotels();updatePeriods();render();
+period.addEventListener('change',render);item.addEventListener('change',render);if($('date').value==='2026-10-01')$('date').value=localISODate();renderHotels();updatePeriods();render();
 </script>
 
 <style>
